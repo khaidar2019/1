@@ -6,6 +6,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === 'WAIT_WHATSAPP_READY') {
+    waitForWhatsAppReady(message?.payload?.timeoutMs)
+      .then((ready) => sendResponse({ ready }))
+      .catch(() => sendResponse({ ready: false }));
+    return true;
+  }
+
   if (message?.type === 'SEND_SINGLE_MESSAGE') {
     sendSingleMessage(message.payload)
       .then((result) => sendResponse(result))
@@ -49,11 +56,25 @@ async function sendSingleMessage({ phone, message }) {
 async function checkWhatsAppReady() {
   if (!location.hostname.includes('web.whatsapp.com')) return false;
 
-  const hasQr = !!document.querySelector('canvas[aria-label="Scan this QR code to link a device"], div[data-ref] canvas');
-  const hasComposer = !!document.querySelector('footer div[contenteditable="true"][role="textbox"]');
-  const hasLanding = !!document.querySelector('#pane-side');
+  const hasQr = !!document.querySelector('[data-testid="qrcode"], canvas[aria-label*="QR"], div[data-ref] canvas');
+  const hasAuthenticatedShell = !!document.querySelector('#app div[role="application"], #pane-side, [data-testid="chat-list-search"]');
+  const hasSendComposer = !!document.querySelector('footer div[contenteditable="true"][role="textbox"]');
+  const hasLoadingProgress = !!document.querySelector('progress, [role="progressbar"]');
 
-  return !hasQr && (hasComposer || hasLanding);
+  if (hasQr) return false;
+  if (hasSendComposer || hasAuthenticatedShell) return true;
+  if (hasLoadingProgress) return false;
+
+  return false;
+}
+
+async function waitForWhatsAppReady(timeoutMs = 20000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (await checkWhatsAppReady()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 350));
+  }
+  return false;
 }
 
 function waitForComposerOrError(timeoutMs) {

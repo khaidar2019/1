@@ -48,7 +48,16 @@ async function startBulkSend(payload) {
     return { ok: false, error: 'Please open and login to WhatsApp Web' };
   }
 
-  const readyResponse = await sendToTab(targetTabId, { type: 'CHECK_WHATSAPP_READY' });
+  state = {
+    ...state,
+    status: 'Checking WhatsApp Web session...'
+  };
+  pushUpdate();
+
+  const readyResponse = await sendToTab(targetTabId, {
+    type: 'WAIT_WHATSAPP_READY',
+    payload: { timeoutMs: 30000 }
+  }, 35000);
   if (!readyResponse?.ready) {
     return { ok: false, error: 'Please open and login to WhatsApp Web' };
   }

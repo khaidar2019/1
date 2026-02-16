@@ -227,7 +227,7 @@ async function onStart() {
 
   const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!activeTab?.url?.startsWith('https://web.whatsapp.com/')) {
-    setStatus('Please open and login to WhatsApp Web.');
+    setStatus('Open web.whatsapp.com first. Login happens on the page (QR scan), not in this extension.');
     return;
   }
 
@@ -245,7 +245,8 @@ async function onStart() {
   });
 
   if (!response?.ok) {
-    setStatus(response?.error || 'Failed to start.');
+    const fallback = 'Failed to start. Ensure WhatsApp Web is fully loaded and logged in (QR scan on the page).';
+    setStatus(response?.error || fallback);
     return;
   }
 
