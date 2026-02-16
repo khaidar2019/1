@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bulk Messenger</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      margin: 0;
+      width: 380px;
+      font-family: Arial, sans-serif;
+      background: #111827;
+      color: #f9fafb;
+    }
+    .container { padding: 14px; display: grid; gap: 10px; }
+    h1 { margin: 0 0 4px; font-size: 16px; }
+    label { font-size: 12px; display: block; margin-bottom: 4px; }
+    input[type="file"], textarea, input[type="number"] {
+      width: 100%; box-sizing: border-box; padding: 8px; border-radius: 8px;
+      border: 1px solid #374151; background: #1f2937; color: #f9fafb;
+    }
+    textarea { min-height: 90px; resize: vertical; }
+    .row { display: flex; gap: 10px; }
+    .row > div { flex: 1; }
+    .checks { display: flex; gap: 12px; }
+    .checks label { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; }
+    .actions { display: flex; gap: 8px; }
+    button {
+      flex: 1; border: 0; border-radius: 8px; padding: 9px; cursor: pointer;
+      font-weight: 600;
+    }
+    #startBtn { background: #22c55e; color: #111827; }
+    #stopBtn { background: #ef4444; color: #fff; }
+    progress { width: 100%; height: 12px; }
+    #progressText { font-size: 12px; color: #d1d5db; }
+    #logs {
+      max-height: 160px; overflow-y: auto; background: #0b1220; border: 1px solid #1f2937;
+      border-radius: 8px; padding: 8px; font-size: 12px;
+    }
+    .log-item { margin: 0 0 4px; }
+    .ok { color: #4ade80; }
+    .err { color: #f87171; }
+    .skip { color: #fbbf24; }
+    .muted { color: #9ca3af; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Bulk Messenger</h1>
+
+    <div>
+      <label for="fileInput">Excel file (.xlsx)</label>
+      <input id="fileInput" type="file" accept=".xlsx" />
+    </div>
+
+    <div>
+      <label for="messageInput">Message</label>
+      <textarea id="messageInput" placeholder="Write your message..."></textarea>
+    </div>
+
+    <div class="checks">
+      <label><input id="waCheckbox" type="checkbox" checked /> WhatsApp</label>
+      <label><input id="tgCheckbox" type="checkbox" checked /> Telegram</label>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="minDelay">Min delay (seconds)</label>
+        <input id="minDelay" type="number" min="1" value="5" />
+      </div>
+      <div>
+        <label for="maxDelay">Max delay (seconds)</label>
+        <input id="maxDelay" type="number" min="1" value="10" />
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="startBtn">Start</button>
+      <button id="stopBtn">Stop</button>
+    </div>
+
+    <div>
+      <progress id="progressBar" value="0" max="1"></progress>
+      <div id="progressText">Current: 0 / 0</div>
+    </div>
+
+    <div id="logs"></div>
+  </div>
+
+  <script src="xlsx.full.min.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
