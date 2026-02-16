@@ -7,6 +7,8 @@ Production-oriented Chrome Extension for **bulk messaging** from an Excel file (
 
 All controls are managed from a single popup UI.
 
+> Важно: перед рассылкой выполните авторизацию в WhatsApp Web и Telegram Web через кнопки в popup.
+
 ---
 
 ## Features
@@ -41,7 +43,7 @@ All controls are managed from a single popup UI.
 ## Requirements
 
 - Google Chrome (latest stable)
-- Logged in sessions:
+- Logged in sessions (или открыть из popup кнопками Login):
   - https://web.whatsapp.com/
   - https://web.telegram.org/
 
@@ -62,15 +64,17 @@ All controls are managed from a single popup UI.
 ## Usage
 
 1. Click extension icon to open popup.
-2. Select `.xlsx` file with phone numbers in **column A**.
-3. Enter message text.
-4. Select channels:
+2. Нажмите **Open WhatsApp Login** и/или **Open Telegram Login**, выполните вход в новых вкладках.
+3. Вернитесь в popup и убедитесь, что статус авторизации отображает `WA ✅` / `TG ✅`.
+4. Select `.xlsx` file with phone numbers in **column A**.
+5. Enter message text.
+6. Select channels:
    - `Send via WhatsApp`
    - `Send via Telegram`
-5. Set `min delay` and `max delay`.
-6. Click **Start**.
-7. Watch progress and logs.
-8. Click **Stop** any time to halt.
+7. Set `min delay` and `max delay`.
+8. Click **Start**.
+9. Watch progress and logs.
+10. Click **Stop** any time to halt.
 
 ---
 

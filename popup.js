@@ -6,6 +6,9 @@ const minDelayInput = document.getElementById('minDelay');
 const maxDelayInput = document.getElementById('maxDelay');
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
+const openWaBtn = document.getElementById('openWaBtn');
+const openTgBtn = document.getElementById('openTgBtn');
+const authStatus = document.getElementById('authStatus');
 const progressBar = document.getElementById('progressBar');
 const progressText = document.getElementById('progressText');
 const logsContainer = document.getElementById('logs');
@@ -21,8 +24,7 @@ function appendLog(text, type = 'muted') {
 
 function sanitizePhone(value) {
   if (!value) return '';
-  const digits = String(value).replace(/\D/g, '');
-  return digits;
+  return String(value).replace(/\D/g, '');
 }
 
 async function parseExcelFile(file) {
@@ -47,6 +49,18 @@ function updateProgress(current, total) {
   progressBar.max = Math.max(total, 1);
   progressBar.value = current;
   progressText.textContent = `Current: ${current} / ${total}`;
+}
+
+function updateAuthStatusText(status) {
+  const wa = status.whatsapp ? 'WA ✅' : 'WA ❌';
+  const tg = status.telegram ? 'TG ✅' : 'TG ❌';
+  authStatus.textContent = `Auth status: ${wa} | ${tg}`;
+}
+
+async function refreshAuthStatus() {
+  const status = await chrome.runtime.sendMessage({ type: 'CHECK_AUTH_STATUS' });
+  updateAuthStatusText(status || { whatsapp: false, telegram: false });
+  return status;
 }
 
 chrome.runtime.onMessage.addListener((message) => {
@@ -92,6 +106,17 @@ startBtn.addEventListener('click', async () => {
       return;
     }
 
+    const auth = await refreshAuthStatus();
+    if (waCheckbox.checked && !auth.whatsapp) {
+      appendLog('WhatsApp is not authorized. Click "Open WhatsApp Login" and scan QR.', 'err');
+      return;
+    }
+
+    if (tgCheckbox.checked && !auth.telegram) {
+      appendLog('Telegram is not authorized. Click "Open Telegram Login" and sign in.', 'err');
+      return;
+    }
+
     parsedNumbers = await parseExcelFile(selectedFile);
     if (!parsedNumbers.length) {
       appendLog('No valid phone numbers found in column A.', 'err');
@@ -103,7 +128,7 @@ startBtn.addEventListener('click', async () => {
     updateProgress(0, parsedNumbers.length);
     appendLog(`Loaded ${parsedNumbers.length} unique numbers.`, 'ok');
 
-    await chrome.runtime.sendMessage({
+    const response = await chrome.runtime.sendMessage({
       type: 'START_BULK',
       payload: {
         numbers: parsedNumbers,
@@ -114,6 +139,10 @@ startBtn.addEventListener('click', async () => {
         maxDelayMs: maxDelaySec * 1000
       }
     });
+
+    if (!response?.ok) {
+      appendLog(response?.error || 'Failed to start', 'err');
+    }
   } catch (error) {
     appendLog(`Failed to start: ${error.message}`, 'err');
   }
@@ -124,12 +153,22 @@ stopBtn.addEventListener('click', async () => {
   appendLog('Stop requested by user.', 'skip');
 });
 
+openWaBtn.addEventListener('click', async () => {
+  await chrome.runtime.sendMessage({ type: 'OPEN_LOGIN_TAB', platform: 'whatsapp' });
+  appendLog('Opened WhatsApp Web login tab.', 'muted');
+});
+
+openTgBtn.addEventListener('click', async () => {
+  await chrome.runtime.sendMessage({ type: 'OPEN_LOGIN_TAB', platform: 'telegram' });
+  appendLog('Opened Telegram Web login tab.', 'muted');
+});
+
 (async () => {
   const { lastMessage } = await chrome.storage.local.get(['lastMessage']);
   if (lastMessage) messageInput.value = lastMessage;
 
   const state = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
-  if (state) {
-    updateProgress(state.current || 0, state.total || 0);
-  }
+  if (state) updateProgress(state.current || 0, state.total || 0);
+
+  await refreshAuthStatus();
 })();
