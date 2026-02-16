@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "WAMessager MV3 Bulk Sender",
+  "description": "Bulk sender for WhatsApp Web using UI automation.",
+  "version": "1.0.0",
+  "permissions": ["storage", "tabs", "downloads"],
+  "host_permissions": ["https://web.whatsapp.com/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "WA Bulk Sender"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

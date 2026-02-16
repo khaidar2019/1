@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WA Bulk Sender</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="container">
+    <header class="header">
+      <h1>WA Bulk Sender</h1>
+      <button id="themeToggle" class="ghost-btn" type="button" title="Toggle dark mode">🌙</button>
+    </header>
+
+    <section class="card">
+      <label for="numbersInput">Phone numbers (one per line or comma-separated)</label>
+      <textarea id="numbersInput" rows="4" placeholder="15551234567, 447000000000"></textarea>
+
+      <div class="row gap-sm">
+        <div class="grow">
+          <label for="csvInput">Import CSV (name, phone)</label>
+          <input id="csvInput" type="file" accept=".csv,text/csv" />
+        </div>
+        <button id="clearContactsBtn" class="ghost-btn" type="button">Clear</button>
+      </div>
+
+      <label for="messageInput">Message template</label>
+      <textarea id="messageInput" rows="5" placeholder="Hi {{name}}, this is a test message for {{number}}"></textarea>
+      <small class="hint">Supported variables: {{name}}, {{number}}</small>
+
+      <div class="row">
+        <div class="grow">
+          <label for="minDelay">Min delay (seconds)</label>
+          <input id="minDelay" type="number" min="1" value="5" />
+        </div>
+        <div class="grow">
+          <label for="maxDelay">Max delay (seconds)</label>
+          <input id="maxDelay" type="number" min="1" value="15" />
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row gap-sm">
+        <button id="startBtn" class="primary" type="button">Start Sending</button>
+        <button id="stopBtn" class="danger" type="button" disabled>Stop</button>
+      </div>
+      <div class="row gap-sm top-margin">
+        <button id="exportBtn" class="ghost-btn" type="button">Export Report</button>
+      </div>
+
+      <div class="progress-wrap">
+        <div id="progressBar" class="progress-bar"></div>
+      </div>
+
+      <ul class="status-grid">
+        <li><strong>Total:</strong> <span id="totalCount">0</span></li>
+        <li><strong>Sent:</strong> <span id="sentCount">0</span></li>
+        <li><strong>Failed:</strong> <span id="failedCount">0</span></li>
+      </ul>
+
+      <p id="statusText" class="status">Idle</p>
+    </section>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>
