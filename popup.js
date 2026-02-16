@@ -1,4 +1,5 @@
 const fileInput = document.getElementById('fileInput');
+const numbersInput = document.getElementById('numbersInput');
 const messageInput = document.getElementById('messageInput');
 const waCheckbox = document.getElementById('waCheckbox');
 const tgCheckbox = document.getElementById('tgCheckbox');
@@ -24,18 +25,35 @@ function normalizePhone(rawValue) {
   const digits = String(rawValue ?? '').replace(/\D/g, '');
   if (!digits) return null;
 
-  // Expected format: 992XXXXXXXXX (12 digits total for country code + number).
-  if (!digits.startsWith('992')) return null;
-  if (digits.length !== 12) return null;
-
+  // E.164-like range without + sign: 8..15 digits.
+  if (digits.length < 8 || digits.length > 15) return null;
   return digits;
+}
+
+function parseNumbersText(rawText) {
+  const tokens = String(rawText || '')
+    .split(/[\n,;\s]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  const unique = new Set();
+  let invalidCount = 0;
+
+  for (const token of tokens) {
+    const normalized = normalizePhone(token);
+    if (!normalized) {
+      invalidCount += 1;
+      continue;
+    }
+    unique.add(normalized);
+  }
+
+  return { numbers: [...unique], invalidCount };
 }
 
 async function parseExcelFile(file) {
   appendLog('Reading Excel file...', 'muted');
   const arrayBuffer = await file.arrayBuffer();
-
-  // SheetJS API contract requested by spec.
   const workbook = await XLSX.read(arrayBuffer, { type: 'array' });
   const firstSheetName = workbook.SheetNames[0];
   if (!firstSheetName) return { numbers: [], invalidCount: 0 };
@@ -62,6 +80,10 @@ async function parseExcelFile(file) {
   return { numbers: [...unique], invalidCount };
 }
 
+function mergeNumbers(manualSet, excelSet) {
+  return [...new Set([...manualSet, ...excelSet])];
+}
+
 function updateProgress(current, total) {
   progressBar.max = Math.max(total, 1);
   progressBar.value = current;
@@ -77,6 +99,7 @@ function updateAuthStatusText(status) {
 async function saveConfig() {
   const config = {
     message: messageInput.value,
+    manualNumbers: numbersInput.value,
     sendWhatsApp: waCheckbox.checked,
     sendTelegram: tgCheckbox.checked,
     minDelaySec: Number(minDelayInput.value) || 8,
@@ -90,6 +113,7 @@ async function restoreConfig() {
   const cfg = bulkConfig || {};
 
   messageInput.value = cfg.message ?? '';
+  numbersInput.value = cfg.manualNumbers ?? '';
   waCheckbox.checked = cfg.sendWhatsApp ?? true;
   tgCheckbox.checked = cfg.sendTelegram ?? true;
   minDelayInput.value = String(cfg.minDelaySec ?? 8);
@@ -125,11 +149,6 @@ startBtn.addEventListener('click', async () => {
     const minDelaySec = Number(minDelayInput.value);
     const maxDelaySec = Number(maxDelayInput.value);
 
-    if (!selectedFile) {
-      appendLog('Please select an .xlsx file.', 'err');
-      return;
-    }
-
     if (!message) {
       appendLog('Message is required.', 'err');
       return;
@@ -156,13 +175,22 @@ startBtn.addEventListener('click', async () => {
       return;
     }
 
-    const { numbers, invalidCount } = await parseExcelFile(selectedFile);
+    const manual = parseNumbersText(numbersInput.value);
+    appendLog(`Manual numbers parsed: ${manual.numbers.length}, invalid: ${manual.invalidCount}.`, manual.invalidCount ? 'skip' : 'ok');
+
+    let excel = { numbers: [], invalidCount: 0 };
+    if (selectedFile) {
+      excel = await parseExcelFile(selectedFile);
+      appendLog(`Excel numbers parsed: ${excel.numbers.length}, invalid: ${excel.invalidCount}.`, excel.invalidCount ? 'skip' : 'ok');
+    }
+
+    const numbers = mergeNumbers(manual.numbers, excel.numbers);
     if (!numbers.length) {
-      appendLog('No valid phone numbers found in Excel column A.', 'err');
+      appendLog('No valid phone numbers found (manual list or Excel).', 'err');
       return;
     }
 
-    appendLog(`Parsed numbers: ${numbers.length}. Invalid skipped: ${invalidCount}.`, invalidCount ? 'skip' : 'ok');
+    appendLog(`Total unique numbers to process: ${numbers.length}.`, 'ok');
 
     await saveConfig();
     updateProgress(0, numbers.length);
@@ -200,14 +228,13 @@ openTgBtn.addEventListener('click', async () => {
   appendLog('Opened Telegram Web tab.', 'muted');
 });
 
-for (const control of [messageInput, waCheckbox, tgCheckbox, minDelayInput, maxDelayInput]) {
+for (const control of [messageInput, numbersInput, waCheckbox, tgCheckbox, minDelayInput, maxDelayInput]) {
   control.addEventListener('change', () => {
     saveConfig().catch(() => {});
   });
 }
-messageInput.addEventListener('input', () => {
-  saveConfig().catch(() => {});
-});
+messageInput.addEventListener('input', () => saveConfig().catch(() => {}));
+numbersInput.addEventListener('input', () => saveConfig().catch(() => {}));
 
 (async () => {
   await restoreConfig();

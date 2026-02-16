@@ -77,7 +77,7 @@ async function clickWhatsAppSendButtonWithPolling(timeoutMs = 15000) {
 
       if (elapsed >= timeoutMs) {
         clearInterval(intervalId);
-        reject(new Error('WhatsApp send button not found'));
+        reject(new Error('send button timeout'));
       }
     }, 350);
   });
@@ -87,7 +87,22 @@ async function sendWhatsAppMessage() {
   const mainReady = await waitForSelector(['#main', '[data-testid="conversation-panel-wrapper"]'], 15000);
   if (!mainReady) throw new Error('WhatsApp chat UI not loaded');
 
-  await clickWhatsAppSendButtonWithPolling(15000);
+  try {
+    await clickWhatsAppSendButtonWithPolling(15000);
+  } catch (error) {
+    if (error.message !== 'send button timeout') throw error;
+
+    const inputBox = await waitForSelector([
+      'div[contenteditable="true"][data-tab]',
+      'footer [contenteditable="true"]'
+    ], 4000);
+
+    if (!inputBox) throw new Error('WhatsApp send failed: no input box');
+
+    inputBox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+    inputBox.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+  }
+
   await sleep(1200);
 }
 

@@ -21,6 +21,7 @@
       border: 1px solid #374151; background: #1f2937; color: #f9fafb;
     }
     textarea { min-height: 88px; resize: vertical; }
+    #numbersInput { min-height: 70px; }
     .row { display: flex; gap: 10px; }
     .row > div { flex: 1; }
     .checks { display: flex; gap: 12px; }
@@ -74,7 +75,12 @@
     </div>
 
     <div>
-      <label for="fileInput">Excel file (.xlsx)</label>
+      <label for="numbersInput">Phone numbers list (one per line, comma or space separated)</label>
+      <textarea id="numbersInput" placeholder="992XXXXXXXXX&#10;+992XXXXXXXXX&#10;1234567890"></textarea>
+    </div>
+
+    <div>
+      <label for="fileInput">Excel file (.xlsx) (optional)</label>
       <input id="fileInput" type="file" accept=".xlsx" />
     </div>
 

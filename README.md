@@ -13,7 +13,7 @@ All controls are managed from a single popup UI.
 
 ## Features
 
-- Import phone numbers from Excel (`.xlsx`, column A)
+- Import phone numbers from manual list (textarea) and/or Excel (`.xlsx`, column A)
 - Remove empty rows and duplicates automatically
 - Write one message and send to all numbers
 - Send via WhatsApp, Telegram, or both
@@ -66,15 +66,16 @@ All controls are managed from a single popup UI.
 1. Click extension icon to open popup.
 2. Нажмите **Open WhatsApp Login** и/или **Open Telegram Login**, выполните вход в новых вкладках.
 3. Вернитесь в popup и убедитесь, что статус авторизации отображает `WA ✅` / `TG ✅`.
-4. Select `.xlsx` file with phone numbers in **column A**.
-5. Enter message text.
-6. Select channels:
+4. Вставьте номера в поле списка (по одному в строке, или через запятую).
+5. (Опционально) выберите `.xlsx` с номерами в **column A**.
+6. Enter message text.
+7. Select channels:
    - `Send via WhatsApp`
    - `Send via Telegram`
-7. Set `min delay` and `max delay`.
-8. Click **Start**.
-9. Watch progress and logs.
-10. Click **Stop** any time to halt.
+8. Set `min delay` and `max delay`.
+9. Click **Start**.
+10. Watch progress and logs.
+11. Click **Stop** any time to halt.
 
 ---
 
