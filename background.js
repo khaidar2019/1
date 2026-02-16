@@ -96,6 +96,7 @@ async function sendViaWhatsApp(phone, message) {
 }
 
 async function sendViaTelegram(phone, message) {
+  // Primary flow: Telegram Web search by phone.
   const tab = await chrome.tabs.create({ url: 'https://web.telegram.org/k/', active: false });
 
   try {
@@ -104,7 +105,20 @@ async function sendViaTelegram(phone, message) {
     await runContentAction(tab.id, 'send-telegram', { phone, message });
     return { ok: true };
   } catch (error) {
-    return { ok: false, error: error.message };
+    const firstError = error.message || 'unknown telegram error';
+
+    // Fallback flow: open t.me deep link and try redirect to web app chat.
+    const fallbackTab = await chrome.tabs.create({ url: `https://t.me/+${encodeURIComponent(phone)}`, active: false });
+    try {
+      await waitForTabComplete(fallbackTab.id);
+      await sleep(2000);
+      await runContentAction(fallbackTab.id, 'send-telegram-via-link', { phone, message });
+      return { ok: true };
+    } catch (fallbackError) {
+      return { ok: false, error: `${firstError}; fallback failed: ${fallbackError.message}` };
+    } finally {
+      await chrome.tabs.remove(fallbackTab.id).catch(() => {});
+    }
   } finally {
     await chrome.tabs.remove(tab.id).catch(() => {});
   }

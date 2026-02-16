@@ -8,7 +8,7 @@ async function waitForSelector(selectors, timeoutMs = 20000) {
       const element = document.querySelector(selector);
       if (element) return element;
     }
-    await sleep(300);
+    await sleep(250);
   }
 
   throw new Error(`Element not found: ${selectors.join(', ')}`);
@@ -53,6 +53,7 @@ function isWhatsAppAuthorized() {
 function isTelegramAuthorized() {
   if (document.querySelector('input[name="phone_number"]')) return false;
   if (document.body.innerText.includes('Log in to Telegram by QR Code')) return false;
+  if (document.body.innerText.includes('Log in to Telegram')) return false;
   return Boolean(
     document.querySelector('.chat-list, .tabs-tab, .left-column') ||
     document.querySelector('input[placeholder*="Search"], input[placeholder*="Поиск"]')
@@ -60,59 +61,90 @@ function isTelegramAuthorized() {
 }
 
 async function sendWhatsAppMessage() {
-  await waitForSelector(['#main', '[data-testid="conversation-panel-wrapper"]'], 25000);
+  await waitForSelector(['#main', '[data-testid="conversation-panel-wrapper"]'], 30000);
 
-  const errorBanner = document.querySelector('[data-testid="alert-phone"]');
-  if (errorBanner) throw new Error('user not found');
+  const notFound = document.querySelector('[data-testid="alert-phone"], [data-testid="alert"]');
+  if (notFound && /phone number shared via url is invalid|not on whatsapp|номер.*не/i.test(notFound.textContent || '')) {
+    throw new Error('user not found');
+  }
 
   const sendBtn = await waitForSelector([
-    '[data-testid="compose-btn-send"]',
+    'button[data-testid="compose-btn-send"]',
     'button[aria-label="Send"]',
-    'span[data-icon="send"]'
-  ], 12000);
+    'button span[data-icon="send"]',
+    'button[aria-label*="Отправить"]'
+  ], 15000);
 
   const clickable = sendBtn.closest('button') || sendBtn;
   clickable.click();
-  await sleep(1200);
+  await sleep(1500);
 }
 
-async function sendTelegramMessage(phone, message) {
+async function findTelegramChatByPhone(phone) {
   const searchInput = await waitForSelector([
+    'input.input-search-input',
     'input[type="text"][placeholder*="Search"]',
     'input[placeholder*="Search"]',
-    'input[placeholder*="Поиск"]',
-    '.input-search-input'
-  ], 25000);
+    'input[placeholder*="Поиск"]'
+  ], 30000);
 
   searchInput.focus();
   searchInput.value = '';
   searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-  await sleep(200);
+  await sleep(250);
 
-  // Telegram global search by phone normally requires plus prefix.
-  searchInput.value = `+${phone}`;
+  const query = `+${phone}`;
+  searchInput.value = query;
   searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-  await sleep(1600);
+  await sleep(1800);
 
-  const firstResult = document.querySelector('[data-peer-id], .chatlist-chat, .ListItem')?.closest('[data-peer-id], .chatlist-chat, .ListItem')
-    || document.querySelector('[data-peer-id], .chatlist-chat, .ListItem');
+  const notFound = document.querySelector(
+    '.no-results, .search-empty, [data-peer-id="search-empty"], .ListItem.no-results'
+  );
+  if (notFound) return false;
 
-  const notFoundEl = document.querySelector('.no-results, [data-peer-id="search-empty"], .ListItem.no-results');
-  if (notFoundEl || !firstResult) throw new Error('user not found');
+  const resultSelectors = [
+    '.search-super-item[data-peer-id]',
+    '.search-results [data-peer-id]:not([data-peer-id="search-empty"])',
+    '.chatlist .ListItem[data-peer-id]',
+    '[data-peer-id]:not([data-peer-id="search-empty"])'
+  ];
 
-  firstResult.click();
+  for (const selector of resultSelectors) {
+    const el = document.querySelector(selector);
+    if (el) {
+      el.click();
+      await sleep(1200);
+      return true;
+    }
+  }
+
+  // Sometimes Enter opens the first search result.
+  searchInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+  searchInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
   await sleep(1200);
+
+  const composerExists = document.querySelector('div[contenteditable="true"][role="textbox"], div.input-message-input[contenteditable="true"], .composer_rich_textarea');
+  return Boolean(composerExists);
+}
+
+async function sendTelegramMessage(phone, message) {
+  const found = await findTelegramChatByPhone(phone);
+  if (!found) throw new Error('user not found');
 
   const composer = await waitForSelector([
     'div[contenteditable="true"][role="textbox"]',
     'div.input-message-input[contenteditable="true"]',
     '.composer_rich_textarea'
-  ], 12000);
+  ], 15000);
 
   setContentEditableText(composer, message);
-  await sleep(350);
+  await sleep(450);
 
-  const sendBtn = document.querySelector('button[aria-label="Send message"], button.send, .Button.send, [data-testid="btn-send"]');
+  const sendBtn = document.querySelector(
+    'button[aria-label="Send message"], button[aria-label*="Send"], button[aria-label*="Отправить"], button.send, .Button.send, [data-testid="btn-send"]'
+  );
+
   if (sendBtn) {
     sendBtn.click();
   } else {
@@ -123,6 +155,23 @@ async function sendTelegramMessage(phone, message) {
   await sleep(1000);
 }
 
+
+async function sendTelegramViaLink(phone, message) {
+  // On t.me page: try open in web telegram.
+  const openWebBtn = document.querySelector('a[href*="web.telegram.org"], a[href*="/k/#"], a[href*="tg://resolve"]');
+  if (openWebBtn) {
+    openWebBtn.click();
+    await sleep(2500);
+  }
+
+  // If still on t.me or redirected, enforce web app with phone hash and then reuse normal flow.
+  if (!location.hostname.includes('web.telegram.org')) {
+    location.href = 'https://web.telegram.org/k/';
+    await sleep(3000);
+  }
+
+  await sendTelegramMessage(phone, message);
+}
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== 'CONTENT_ACTION') return;
 
@@ -151,6 +200,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
       if (message.action === 'send-telegram') {
         await sendTelegramMessage(message.payload.phone, message.payload.message);
+        sendResponse({ ok: true });
+        return;
+      }
+
+      if (message.action === 'send-telegram-via-link') {
+        await sendTelegramViaLink(message.payload.phone, message.payload.message);
         sendResponse({ ok: true });
         return;
       }

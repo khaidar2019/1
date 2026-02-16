@@ -21,7 +21,7 @@ All controls are managed from a single popup UI.
 - Stop sending at any moment
 - Retry failed send once (1 retry max)
 - Real-time progress + logs in popup
-- Persists last message (`chrome.storage.local`)
+- Persists configuration (`message`, channels, delays) in `chrome.storage.local`
 
 ---
 

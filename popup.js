@@ -57,6 +57,29 @@ function updateAuthStatusText(status) {
   authStatus.textContent = `Auth status: ${wa} | ${tg}`;
 }
 
+async function saveConfig() {
+  const config = {
+    sendWhatsApp: waCheckbox.checked,
+    sendTelegram: tgCheckbox.checked,
+    minDelaySec: Number(minDelayInput.value) || 5,
+    maxDelaySec: Number(maxDelayInput.value) || 10,
+    message: messageInput.value
+  };
+
+  await chrome.storage.local.set({ bulkConfig: config, lastMessage: config.message });
+}
+
+async function restoreConfig() {
+  const { bulkConfig, lastMessage } = await chrome.storage.local.get(['bulkConfig', 'lastMessage']);
+  const cfg = bulkConfig || {};
+
+  waCheckbox.checked = cfg.sendWhatsApp ?? true;
+  tgCheckbox.checked = cfg.sendTelegram ?? true;
+  minDelayInput.value = String(cfg.minDelaySec ?? 5);
+  maxDelayInput.value = String(cfg.maxDelaySec ?? 10);
+  messageInput.value = cfg.message ?? lastMessage ?? '';
+}
+
 async function refreshAuthStatus() {
   const status = await chrome.runtime.sendMessage({ type: 'CHECK_AUTH_STATUS' });
   updateAuthStatusText(status || { whatsapp: false, telegram: false });
@@ -123,7 +146,7 @@ startBtn.addEventListener('click', async () => {
       return;
     }
 
-    await chrome.storage.local.set({ lastMessage: message });
+    await saveConfig();
 
     updateProgress(0, parsedNumbers.length);
     appendLog(`Loaded ${parsedNumbers.length} unique numbers.`, 'ok');
@@ -140,9 +163,7 @@ startBtn.addEventListener('click', async () => {
       }
     });
 
-    if (!response?.ok) {
-      appendLog(response?.error || 'Failed to start', 'err');
-    }
+    if (!response?.ok) appendLog(response?.error || 'Failed to start', 'err');
   } catch (error) {
     appendLog(`Failed to start: ${error.message}`, 'err');
   }
@@ -163,9 +184,19 @@ openTgBtn.addEventListener('click', async () => {
   appendLog('Opened Telegram Web login tab.', 'muted');
 });
 
+for (const el of [messageInput, waCheckbox, tgCheckbox, minDelayInput, maxDelayInput]) {
+  el.addEventListener('change', () => {
+    saveConfig().catch(() => {});
+  });
+  if (el === messageInput) {
+    el.addEventListener('input', () => {
+      saveConfig().catch(() => {});
+    });
+  }
+}
+
 (async () => {
-  const { lastMessage } = await chrome.storage.local.get(['lastMessage']);
-  if (lastMessage) messageInput.value = lastMessage;
+  await restoreConfig();
 
   const state = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
   if (state) updateProgress(state.current || 0, state.total || 0);
