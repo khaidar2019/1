@@ -11,10 +11,16 @@ function randomBetween(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-function sendPopupMessage(message) {
-  chrome.runtime.sendMessage(message).catch(() => {
-    // Ignore if popup is closed.
+function logStep(text, level = 'muted') {
+  const label = `[BulkExt][${level.toUpperCase()}] ${text}`;
+  console.log(label);
+  chrome.runtime.sendMessage({ type: 'BULK_LOG', level, text }).catch(() => {
+    // Popup may be closed.
   });
+}
+
+function pushProgress() {
+  chrome.runtime.sendMessage({ type: 'BULK_PROGRESS', current: state.current, total: state.total }).catch(() => {});
 }
 
 function waitForTabComplete(tabId, timeoutMs = 30000) {
@@ -36,6 +42,20 @@ function waitForTabComplete(tabId, timeoutMs = 30000) {
   });
 }
 
+async function sleepInterruptible(totalMs) {
+  const step = 300;
+  let spent = 0;
+
+  while (spent < totalMs) {
+    if (state.stopRequested) return false;
+    const chunk = Math.min(step, totalMs - spent);
+    await sleep(chunk);
+    spent += chunk;
+  }
+
+  return true;
+}
+
 async function runContentAction(tabId, action, payload = {}) {
   await chrome.scripting.executeScript({
     target: { tabId },
@@ -48,25 +68,32 @@ async function runContentAction(tabId, action, payload = {}) {
     payload
   });
 
-  if (!response?.ok) throw new Error(response?.error || 'Content action failed');
+  if (!response?.ok) {
+    throw new Error(response?.error || 'Content action failed');
+  }
+
   return response;
 }
 
 async function openLoginTab(platform) {
   const url = platform === 'whatsapp' ? 'https://web.whatsapp.com/' : 'https://web.telegram.org/k/';
   await chrome.tabs.create({ url, active: true });
+  logStep(`Opened login tab: ${url}`, 'muted');
 }
 
 async function checkAuthPlatform(platform) {
   const url = platform === 'whatsapp' ? 'https://web.whatsapp.com/' : 'https://web.telegram.org/k/';
   const tab = await chrome.tabs.create({ url, active: false });
+  logStep(`Checking auth for ${platform}...`, 'muted');
 
   try {
     await waitForTabComplete(tab.id, 40000);
     await sleep(2500);
     const result = await runContentAction(tab.id, 'check-auth', { platform });
-    return Boolean(result?.authorized);
-  } catch {
+    logStep(`${platform} auth: ${result.authorized ? 'OK' : 'NOT AUTHORIZED'}`, result.authorized ? 'ok' : 'err');
+    return Boolean(result.authorized);
+  } catch (error) {
+    logStep(`${platform} auth check failed: ${error.message}`, 'err');
     return false;
   } finally {
     await chrome.tabs.remove(tab.id).catch(() => {});
@@ -82,43 +109,32 @@ async function checkAuthStatus() {
 async function sendViaWhatsApp(phone, message) {
   const url = `https://web.whatsapp.com/send?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(message)}`;
   const tab = await chrome.tabs.create({ url, active: false });
+  logStep(`WhatsApp tab opened for ${phone}`, 'muted');
 
   try {
-    await waitForTabComplete(tab.id);
-    await sleep(3500);
+    await waitForTabComplete(tab.id, 35000);
+    await sleep(2000);
     await runContentAction(tab.id, 'send-whatsapp', { phone, message });
     return { ok: true };
   } catch (error) {
-    return { ok: false, error: error.message };
+    return { ok: false, error: error.message || 'WhatsApp send failed' };
   } finally {
     await chrome.tabs.remove(tab.id).catch(() => {});
   }
 }
 
 async function sendViaTelegram(phone, message) {
-  // Primary flow: Telegram Web search by phone.
-  const tab = await chrome.tabs.create({ url: 'https://web.telegram.org/k/', active: false });
+  const url = `https://t.me/+${encodeURIComponent(phone)}`;
+  const tab = await chrome.tabs.create({ url, active: false });
+  logStep(`Telegram tab opened for ${phone}`, 'muted');
 
   try {
-    await waitForTabComplete(tab.id);
-    await sleep(3000);
+    await waitForTabComplete(tab.id, 35000);
+    await sleep(2000);
     await runContentAction(tab.id, 'send-telegram', { phone, message });
     return { ok: true };
   } catch (error) {
-    const firstError = error.message || 'unknown telegram error';
-
-    // Fallback flow: open t.me deep link and try redirect to web app chat.
-    const fallbackTab = await chrome.tabs.create({ url: `https://t.me/+${encodeURIComponent(phone)}`, active: false });
-    try {
-      await waitForTabComplete(fallbackTab.id);
-      await sleep(2000);
-      await runContentAction(fallbackTab.id, 'send-telegram-via-link', { phone, message });
-      return { ok: true };
-    } catch (fallbackError) {
-      return { ok: false, error: `${firstError}; fallback failed: ${fallbackError.message}` };
-    } finally {
-      await chrome.tabs.remove(fallbackTab.id).catch(() => {});
-    }
+    return { ok: false, error: error.message || 'Telegram send failed' };
   } finally {
     await chrome.tabs.remove(tab.id).catch(() => {});
   }
@@ -128,6 +144,7 @@ async function sendWithRetry(taskFn) {
   const first = await taskFn();
   if (first.ok) return first;
 
+  logStep(`Retrying after error: ${first.error}`, 'skip');
   await sleep(1500);
   return taskFn();
 }
@@ -140,57 +157,63 @@ async function runBulk(payload) {
   state.current = 0;
   state.total = numbers.length;
 
-  sendPopupMessage({ type: 'BULK_PROGRESS', current: state.current, total: state.total });
+  logStep(`Bulk started. Numbers=${numbers.length}, WA=${sendWhatsApp}, TG=${sendTelegram}`, 'ok');
+  pushProgress();
 
   const auth = await checkAuthStatus();
   if ((sendWhatsApp && !auth.whatsapp) || (sendTelegram && !auth.telegram)) {
+    logStep('Authorization missing. Please login to selected messengers.', 'err');
     state.running = false;
-    sendPopupMessage({ type: 'BULK_LOG', level: 'err', text: 'Authorization missing. Login to selected messengers first.' });
-    sendPopupMessage({ type: 'BULK_DONE' });
+    chrome.runtime.sendMessage({ type: 'BULK_DONE' }).catch(() => {});
     return;
   }
 
   for (let index = 0; index < numbers.length; index += 1) {
     if (state.stopRequested) {
-      sendPopupMessage({ type: 'BULK_LOG', level: 'skip', text: 'Stopped by user.' });
+      logStep('Stopped by user.', 'skip');
       break;
     }
 
     const phone = numbers[index];
     state.current = index + 1;
-
-    sendPopupMessage({ type: 'BULK_PROGRESS', current: state.current, total: state.total });
-    sendPopupMessage({ type: 'BULK_LOG', level: 'muted', text: `Processing ${phone} (${state.current}/${state.total})` });
+    pushProgress();
+    logStep(`Processing ${phone} (${state.current}/${state.total})`, 'muted');
 
     if (sendWhatsApp) {
-      const waResult = await sendWithRetry(() => sendViaWhatsApp(phone, message));
-      if (waResult.ok) {
-        sendPopupMessage({ type: 'BULK_LOG', level: 'ok', text: `WhatsApp sent: ${phone}` });
+      const wa = await sendWithRetry(() => sendViaWhatsApp(phone, message));
+      if (wa.ok) {
+        logStep(`WhatsApp sent: ${phone}`, 'ok');
       } else {
-        sendPopupMessage({ type: 'BULK_LOG', level: 'err', text: `WhatsApp failed (${phone}): ${waResult.error}` });
+        logStep(`WhatsApp send failed (${phone}): ${wa.error}`, 'err');
       }
     }
 
     if (sendTelegram && !state.stopRequested) {
-      const tgResult = await sendWithRetry(() => sendViaTelegram(phone, message));
-      if (tgResult.ok) {
-        sendPopupMessage({ type: 'BULK_LOG', level: 'ok', text: `Telegram sent: ${phone}` });
+      const tg = await sendWithRetry(() => sendViaTelegram(phone, message));
+      if (tg.ok) {
+        logStep(`Telegram sent: ${phone}`, 'ok');
+      } else if (/user not found/i.test(tg.error)) {
+        logStep(`Telegram user not found: ${phone}`, 'skip');
       } else {
-        const normalizedError = /user not found/i.test(tgResult.error) ? 'user not found' : tgResult.error;
-        sendPopupMessage({ type: 'BULK_LOG', level: 'err', text: `Telegram failed (${phone}): ${normalizedError}` });
+        logStep(`Telegram send failed (${phone}): ${tg.error}`, 'err');
       }
     }
 
     if (index < numbers.length - 1 && !state.stopRequested) {
       const delay = randomBetween(minDelayMs, maxDelayMs);
-      sendPopupMessage({ type: 'BULK_LOG', level: 'muted', text: `Waiting ${Math.round(delay / 1000)}s before next number...` });
-      await sleep(delay);
+      logStep(`Delay before next number: ${Math.round(delay / 1000)}s`, 'muted');
+      const completed = await sleepInterruptible(delay);
+      if (!completed) {
+        logStep('Stopped during delay by user.', 'skip');
+        break;
+      }
     }
   }
 
   state.running = false;
   state.stopRequested = false;
-  sendPopupMessage({ type: 'BULK_DONE' });
+  chrome.runtime.sendMessage({ type: 'BULK_DONE' }).catch(() => {});
+  logStep('Bulk finished.', 'ok');
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -202,8 +225,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     runBulk(message.payload).catch((error) => {
       state.running = false;
-      sendPopupMessage({ type: 'BULK_LOG', level: 'err', text: `Fatal error: ${error.message}` });
-      sendPopupMessage({ type: 'BULK_DONE' });
+      logStep(`Fatal error: ${error.message}`, 'err');
+      chrome.runtime.sendMessage({ type: 'BULK_DONE' }).catch(() => {});
     });
 
     sendResponse({ ok: true });
@@ -212,6 +235,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message?.type === 'STOP_BULK') {
     state.stopRequested = true;
+    logStep('Stop flag enabled.', 'skip');
     sendResponse({ ok: true });
     return;
   }
@@ -222,14 +246,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === 'OPEN_LOGIN_TAB') {
-    openLoginTab(message.platform || 'whatsapp').then(() => sendResponse({ ok: true })).catch((error) => {
-      sendResponse({ ok: false, error: error.message });
-    });
+    openLoginTab(message.platform || 'whatsapp')
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
 
   if (message?.type === 'CHECK_AUTH_STATUS') {
-    checkAuthStatus().then(sendResponse).catch(() => sendResponse({ whatsapp: false, telegram: false }));
+    checkAuthStatus()
+      .then(sendResponse)
+      .catch(() => sendResponse({ whatsapp: false, telegram: false }));
     return true;
   }
 });

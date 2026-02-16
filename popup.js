@@ -13,8 +13,6 @@ const progressBar = document.getElementById('progressBar');
 const progressText = document.getElementById('progressText');
 const logsContainer = document.getElementById('logs');
 
-let parsedNumbers = [];
-
 function appendLog(text, type = 'muted') {
   const p = document.createElement('p');
   p.className = `log-item ${type}`;
@@ -22,27 +20,46 @@ function appendLog(text, type = 'muted') {
   logsContainer.prepend(p);
 }
 
-function sanitizePhone(value) {
-  if (!value) return '';
-  return String(value).replace(/\D/g, '');
+function normalizePhone(rawValue) {
+  const digits = String(rawValue ?? '').replace(/\D/g, '');
+  if (!digits) return null;
+
+  // Expected format: 992XXXXXXXXX (12 digits total for country code + number).
+  if (!digits.startsWith('992')) return null;
+  if (digits.length !== 12) return null;
+
+  return digits;
 }
 
 async function parseExcelFile(file) {
+  appendLog('Reading Excel file...', 'muted');
   const arrayBuffer = await file.arrayBuffer();
+
+  // SheetJS API contract requested by spec.
   const workbook = await XLSX.read(arrayBuffer, { type: 'array' });
   const firstSheetName = workbook.SheetNames[0];
-  if (!firstSheetName) return [];
+  if (!firstSheetName) return { numbers: [], invalidCount: 0 };
 
   const sheet = workbook.Sheets[firstSheetName];
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false });
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
   const unique = new Set();
+  let invalidCount = 0;
+
   for (let i = 0; i < rows.length; i += 1) {
-    const phone = sanitizePhone(rows[i][0]);
-    if (phone) unique.add(phone);
+    const firstColumnValue = rows[i]?.[0];
+    if (firstColumnValue === undefined || firstColumnValue === null || String(firstColumnValue).trim() === '') continue;
+
+    const normalized = normalizePhone(firstColumnValue);
+    if (!normalized) {
+      invalidCount += 1;
+      continue;
+    }
+
+    unique.add(normalized);
   }
 
-  return [...unique];
+  return { numbers: [...unique], invalidCount };
 }
 
 function updateProgress(current, total) {
@@ -59,25 +76,24 @@ function updateAuthStatusText(status) {
 
 async function saveConfig() {
   const config = {
+    message: messageInput.value,
     sendWhatsApp: waCheckbox.checked,
     sendTelegram: tgCheckbox.checked,
-    minDelaySec: Number(minDelayInput.value) || 5,
-    maxDelaySec: Number(maxDelayInput.value) || 10,
-    message: messageInput.value
+    minDelaySec: Number(minDelayInput.value) || 8,
+    maxDelaySec: Number(maxDelayInput.value) || 20
   };
-
-  await chrome.storage.local.set({ bulkConfig: config, lastMessage: config.message });
+  await chrome.storage.local.set({ bulkConfig: config });
 }
 
 async function restoreConfig() {
-  const { bulkConfig, lastMessage } = await chrome.storage.local.get(['bulkConfig', 'lastMessage']);
+  const { bulkConfig } = await chrome.storage.local.get(['bulkConfig']);
   const cfg = bulkConfig || {};
 
+  messageInput.value = cfg.message ?? '';
   waCheckbox.checked = cfg.sendWhatsApp ?? true;
   tgCheckbox.checked = cfg.sendTelegram ?? true;
-  minDelayInput.value = String(cfg.minDelaySec ?? 5);
-  maxDelayInput.value = String(cfg.maxDelaySec ?? 10);
-  messageInput.value = cfg.message ?? lastMessage ?? '';
+  minDelayInput.value = String(cfg.minDelaySec ?? 8);
+  maxDelayInput.value = String(cfg.maxDelaySec ?? 20);
 }
 
 async function refreshAuthStatus() {
@@ -131,30 +147,30 @@ startBtn.addEventListener('click', async () => {
 
     const auth = await refreshAuthStatus();
     if (waCheckbox.checked && !auth.whatsapp) {
-      appendLog('WhatsApp is not authorized. Click "Open WhatsApp Login" and scan QR.', 'err');
+      appendLog('WhatsApp is not authorized. Click "Open WhatsApp" and scan QR.', 'err');
       return;
     }
 
     if (tgCheckbox.checked && !auth.telegram) {
-      appendLog('Telegram is not authorized. Click "Open Telegram Login" and sign in.', 'err');
+      appendLog('Telegram is not authorized. Click "Open Telegram" and sign in.', 'err');
       return;
     }
 
-    parsedNumbers = await parseExcelFile(selectedFile);
-    if (!parsedNumbers.length) {
-      appendLog('No valid phone numbers found in column A.', 'err');
+    const { numbers, invalidCount } = await parseExcelFile(selectedFile);
+    if (!numbers.length) {
+      appendLog('No valid phone numbers found in Excel column A.', 'err');
       return;
     }
+
+    appendLog(`Parsed numbers: ${numbers.length}. Invalid skipped: ${invalidCount}.`, invalidCount ? 'skip' : 'ok');
 
     await saveConfig();
-
-    updateProgress(0, parsedNumbers.length);
-    appendLog(`Loaded ${parsedNumbers.length} unique numbers.`, 'ok');
+    updateProgress(0, numbers.length);
 
     const response = await chrome.runtime.sendMessage({
       type: 'START_BULK',
       payload: {
-        numbers: parsedNumbers,
+        numbers,
         message,
         sendWhatsApp: waCheckbox.checked,
         sendTelegram: tgCheckbox.checked,
@@ -163,7 +179,7 @@ startBtn.addEventListener('click', async () => {
       }
     });
 
-    if (!response?.ok) appendLog(response?.error || 'Failed to start', 'err');
+    if (!response?.ok) appendLog(response?.error || 'Failed to start bulk process.', 'err');
   } catch (error) {
     appendLog(`Failed to start: ${error.message}`, 'err');
   }
@@ -176,24 +192,22 @@ stopBtn.addEventListener('click', async () => {
 
 openWaBtn.addEventListener('click', async () => {
   await chrome.runtime.sendMessage({ type: 'OPEN_LOGIN_TAB', platform: 'whatsapp' });
-  appendLog('Opened WhatsApp Web login tab.', 'muted');
+  appendLog('Opened WhatsApp Web tab.', 'muted');
 });
 
 openTgBtn.addEventListener('click', async () => {
   await chrome.runtime.sendMessage({ type: 'OPEN_LOGIN_TAB', platform: 'telegram' });
-  appendLog('Opened Telegram Web login tab.', 'muted');
+  appendLog('Opened Telegram Web tab.', 'muted');
 });
 
-for (const el of [messageInput, waCheckbox, tgCheckbox, minDelayInput, maxDelayInput]) {
-  el.addEventListener('change', () => {
+for (const control of [messageInput, waCheckbox, tgCheckbox, minDelayInput, maxDelayInput]) {
+  control.addEventListener('change', () => {
     saveConfig().catch(() => {});
   });
-  if (el === messageInput) {
-    el.addEventListener('input', () => {
-      saveConfig().catch(() => {});
-    });
-  }
 }
+messageInput.addEventListener('input', () => {
+  saveConfig().catch(() => {});
+});
 
 (async () => {
   await restoreConfig();
